@@ -36,6 +36,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: true
+
+      - name: Pull Git LFS files
+        run: |
+          git lfs install
+          git lfs pull
+
+      - name: Verify dynamic libraries
+        run: |
+          file "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavcodec.dylib"
+          file "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavutil.dylib"
+          file "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libMoltenVK.dylib"
 
       - name: Setup dotnet symlink
         run: |
