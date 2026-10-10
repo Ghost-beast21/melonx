@@ -46,49 +46,68 @@ jobs:
           echo "Latest MeloNX commit:"
           git log -1 --oneline
 
-      - name: Patch MeloNX Swift compile issue
+      - name: Patch EmulationView access level
         run: |
           python3 <<'PY'
           from pathlib import Path
+          import re
 
           path = Path(
               "source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift"
           )
 
-          text = path.read_text()
-
-          old = """    @State var isConnected = false
-
-              @ViewBuilder
-          """
-
-          new = """    @State var isConnected = false
-
-              init(game: GameInfo) {
-                  self.game = game
-              }
-
-              @ViewBuilder
-          """
-
-          if old not in text:
-              print("ERROR: Could not find insertion point in EmulationView.swift")
-              print("Showing nearby lines:")
-              for i, line in enumerate(text.splitlines(), 1):
-                  if "isConnected" in line or "@ViewBuilder" in line:
-                      print(f"{i}: {line}")
+          if not path.exists():
+              print("ERROR: EmulationView.swift does not exist.")
               raise SystemExit(1)
 
-          text = text.replace(old, new, 1)
+          text = path.read_text()
 
-          path.write_text(text)
+          print("Current nativeSettingsManager lines:")
+          for i, line in enumerate(text.splitlines(), 1):
+              if "nativeSettingsManager" in line:
+                  print(f"{i}: {line}")
 
-          print("EmulationView initializer successfully patched.")
+          pattern = (
+              r'(@StateObject(?:\([^)]*\))?\s+)'
+              r'private'
+              r'(\s+var\s+nativeSettingsManager\b)'
+          )
+
+          new_text, count = re.subn(
+              pattern,
+              r'\1\2',
+              text,
+              count=1
+          )
+
+          if count == 1:
+              path.write_text(new_text)
+              print("")
+              print("SUCCESS: Removed private from nativeSettingsManager.")
+          else:
+              if re.search(
+                  r'@StateObject(?:\([^)]*\))?\s+var\s+nativeSettingsManager\b',
+                  text
+              ):
+                  print("")
+                  print("nativeSettingsManager is already non-private.")
+                  print("No patch required.")
+              else:
+                  print("")
+                  print(
+                      "ERROR: Could not identify the "
+                      "nativeSettingsManager declaration."
+                  )
+                  raise SystemExit(1)
           PY
 
-          grep -A 8 -B 4 \
-            "init(game: GameInfo)" \
-            source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
+          echo ""
+          echo "Result after patch:"
+
+          grep -n \
+            "nativeSettingsManager" \
+            source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift \
+            || true
 
       - name: Setup dotnet path
         run: |
@@ -126,6 +145,11 @@ jobs:
           import re
 
           path = Path("Directory.Packages.props")
+
+          if not path.exists():
+              print("ERROR: Directory.Packages.props not found.")
+              raise SystemExit(1)
+
           text = path.read_text()
 
           new_text = re.sub(
@@ -136,12 +160,15 @@ jobs:
 
           if new_text == text:
               print("Ryujinx.LibHac version line was not changed.")
-              print("Existing matches:")
+
               for line in text.splitlines():
                   if "Ryujinx.LibHac" in line:
                       print(line)
           else:
-              print("Ryujinx.LibHac version patched.")
+              print(
+                  "Ryujinx.LibHac version patched "
+                  "to 0.21.0-alpha.133."
+              )
 
           path.write_text(new_text)
           PY
@@ -156,8 +183,15 @@ jobs:
 
             <packageSources>
               <clear />
-              <add key="LocalLibHac" value="./local-nuget" />
-              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+
+              <add
+                key="LocalLibHac"
+                value="./local-nuget" />
+
+              <add
+                key="nuget.org"
+                value="https://api.nuget.org/v3/index.json" />
+
             </packageSources>
 
             <packageSourceMapping>
@@ -204,7 +238,8 @@ jobs:
             src/Ryujinx.Library \
             -type f \
             -name '*.dylib' \
-            -print || true
+            -print \
+            || true
 
           DYLIB="$(find \
             src/Ryujinx.Library \
@@ -218,6 +253,7 @@ jobs:
             exit 1
           fi
 
+          echo ""
           echo "Found:"
           echo "$DYLIB"
 
