@@ -46,11 +46,10 @@ jobs:
           echo "Latest MeloNX commit:"
           git log -1 --oneline
 
-      - name: Patch EmulationView access level
+      - name: Patch EmulationView initializer
         run: |
           python3 <<'PY'
           from pathlib import Path
-          import re
 
           path = Path(
               "source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift"
@@ -62,52 +61,53 @@ jobs:
 
           text = path.read_text()
 
-          print("Current nativeSettingsManager lines:")
-          for i, line in enumerate(text.splitlines(), 1):
-              if "nativeSettingsManager" in line:
-                  print(f"{i}: {line}")
+          if "init(game: GameInfo)" in text:
+              print("init(game: GameInfo) already exists. No patch required.")
+              raise SystemExit(0)
 
-          pattern = (
-              r'(@StateObject(?:\([^)]*\))?\s+)'
-              r'private'
-              r'(\s+var\s+nativeSettingsManager\b)'
-          )
+          lines = text.splitlines(keepends=True)
 
-          new_text, count = re.subn(
-              pattern,
-              r'\1\2',
-              text,
-              count=1
-          )
+          insert_at = None
+          indent = "    "
 
-          if count == 1:
-              path.write_text(new_text)
-              print("")
-              print("SUCCESS: Removed private from nativeSettingsManager.")
-          else:
-              if re.search(
-                  r'@StateObject(?:\([^)]*\))?\s+var\s+nativeSettingsManager\b',
-                  text
-              ):
-                  print("")
-                  print("nativeSettingsManager is already non-private.")
-                  print("No patch required.")
-              else:
-                  print("")
-                  print(
-                      "ERROR: Could not identify the "
-                      "nativeSettingsManager declaration."
-                  )
-                  raise SystemExit(1)
+          for i, line in enumerate(lines):
+              if line.strip() == "@ViewBuilder":
+                  insert_at = i
+                  indent = line[:len(line) - len(line.lstrip())]
+                  break
+
+          if insert_at is None:
+              print("ERROR: Could not find @ViewBuilder insertion point.")
+              print("Relevant lines:")
+              for i, line in enumerate(lines, 1):
+                  if (
+                      "isConnected" in line
+                      or "@ViewBuilder" in line
+                      or "var game" in line
+                  ):
+                      print(f"{i}: {line.rstrip()}")
+              raise SystemExit(1)
+
+          initializer = [
+              f"{indent}init(game: GameInfo) {{\n",
+              f"{indent}    self.game = game\n",
+              f"{indent}}}\n",
+              "\n"
+          ]
+
+          lines[insert_at:insert_at] = initializer
+
+          path.write_text("".join(lines))
+
+          print("SUCCESS: Explicit EmulationView(game:) initializer inserted.")
           PY
 
           echo ""
-          echo "Result after patch:"
+          echo "Patched section:"
 
-          grep -n \
-            "nativeSettingsManager" \
-            source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift \
-            || true
+          grep -A 8 -B 8 \
+            "init(game: GameInfo)" \
+            source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
 
       - name: Setup dotnet path
         run: |
@@ -158,19 +158,9 @@ jobs:
               text
           )
 
-          if new_text == text:
-              print("Ryujinx.LibHac version line was not changed.")
-
-              for line in text.splitlines():
-                  if "Ryujinx.LibHac" in line:
-                      print(line)
-          else:
-              print(
-                  "Ryujinx.LibHac version patched "
-                  "to 0.21.0-alpha.133."
-              )
-
           path.write_text(new_text)
+
+          print("Ryujinx.LibHac configured.")
           PY
 
           grep "Ryujinx.LibHac" Directory.Packages.props || true
@@ -209,7 +199,6 @@ jobs:
           </configuration>
           EOF
 
-          echo "nuget.config:"
           cat source/nuget.config
 
       - name: Restore Ryujinx Library
@@ -253,7 +242,6 @@ jobs:
             exit 1
           fi
 
-          echo ""
           echo "Found:"
           echo "$DYLIB"
 
@@ -282,7 +270,6 @@ jobs:
       - name: Configure project
         run: |
           cd source
-
           ruby embed_sign_dylib.rb
 
       - name: Verify dynamic libraries
