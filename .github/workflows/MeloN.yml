@@ -59,10 +59,78 @@ jobs:
 
           dotnet --info
 
-      - name: Restore .NET packages
+      - name: Download LibHac backup package
+        run: |
+          mkdir -p source/local-nuget
+
+          RELEASE_JSON="$(mktemp)"
+
+          curl -fL \
+            "https://api.github.com/repos/NextendoNetwork/Ryujinx-Nextendo/releases/tags/build-deps" \
+            -o "$RELEASE_JSON"
+
+          LIBHAC_URL="$(python3 - "$RELEASE_JSON" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as f:
+              release = json.load(f)
+
+          for asset in release.get("assets", []):
+              name = asset.get("name", "")
+              if "Ryujinx.LibHac" in name and name.endswith(".nupkg"):
+                  print(asset["browser_download_url"])
+                  break
+          PY
+          )"
+
+          if [ -z "$LIBHAC_URL" ]; then
+            echo "Could not find Ryujinx.LibHac backup package"
+            exit 1
+          fi
+
+          echo "Downloading LibHac from:"
+          echo "$LIBHAC_URL"
+
+          curl -fL \
+            "$LIBHAC_URL" \
+            -o "source/local-nuget/Ryujinx.LibHac.0.21.0-alpha.133.nupkg"
+
+          ls -lh source/local-nuget
+
+      - name: Replace broken NuGet source
+        run: |
+          cat > source/nuget.config <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="LocalLibHac" value="./local-nuget" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+
+            <packageSourceMapping>
+              <packageSource key="LocalLibHac">
+                <package pattern="Ryujinx.LibHac" />
+              </packageSource>
+
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
+
+          echo "New nuget.config:"
+          cat source/nuget.config
+
+      - name: Restore Ryujinx iOS project
         run: |
           cd source
-          dotnet restore
+
+          dotnet restore \
+            src/Ryujinx.Headless.SDL2/Ryujinx.Headless.SDL2.csproj \
+            --configfile nuget.config
 
       - name: Build Ryujinx manually
         run: |
@@ -117,10 +185,9 @@ jobs:
 
           melonx.dependencies.dup.each do |dependency|
             target = dependency.target
-
             next unless target
 
-            if target.name == 'com.Stossy11.MeloNX.RyujinxAg'
+            if target.name.include?('Ryujinx')
               puts "Removing dependency: #{target.name}"
               melonx.dependencies.delete(dependency)
               dependency.remove_from_project
