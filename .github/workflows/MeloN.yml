@@ -79,6 +79,7 @@ jobs:
           if insert_at is None:
               print("ERROR: Could not find @ViewBuilder insertion point.")
               print("Relevant lines:")
+
               for i, line in enumerate(lines, 1):
                   if (
                       "isConnected" in line
@@ -86,6 +87,7 @@ jobs:
                       or "var game" in line
                   ):
                       print(f"{i}: {line.rstrip()}")
+
               raise SystemExit(1)
 
           initializer = [
@@ -199,6 +201,7 @@ jobs:
           </configuration>
           EOF
 
+          echo "nuget.config:"
           cat source/nuget.config
 
       - name: Restore Ryujinx Library
@@ -270,6 +273,7 @@ jobs:
       - name: Configure project
         run: |
           cd source
+
           ruby embed_sign_dylib.rb
 
       - name: Verify dynamic libraries
@@ -300,6 +304,10 @@ jobs:
 
           set -o pipefail
 
+          echo "========================================="
+          echo "Starting MeloNX Xcode archive"
+          echo "========================================="
+
           xcodebuild archive \
             -project "MeloNX.xcodeproj" \
             -scheme "MeloNX" \
@@ -310,7 +318,31 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty
+            2>&1 | tee /tmp/melonx-xcodebuild.log
+
+          BUILD_STATUS=${PIPESTATUS[0]}
+
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            echo ""
+            echo "========================================="
+            echo "REAL XCODE ERRORS"
+            echo "========================================="
+
+            grep -nEi \
+              'error:|fatal error:|undefined symbol|duplicate symbol|failed|cannot|inaccessible|not found|missing' \
+              /tmp/melonx-xcodebuild.log \
+              | tail -120 \
+              || true
+
+            echo ""
+            echo "========================================="
+            echo "END OF XCODE ERRORS"
+            echo "========================================="
+
+            exit "$BUILD_STATUS"
+          fi
+
+          echo "Archive finished successfully."
 
       - name: Verify archive
         run: |
