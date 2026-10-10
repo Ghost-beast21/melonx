@@ -45,6 +45,7 @@ jobs:
       - name: Show MeloNX commit
         run: |
           cd source
+          echo "Latest MeloNX commit:"
           git log -1 --oneline
 
       - name: Setup dotnet path
@@ -63,53 +64,56 @@ jobs:
         run: |
           mkdir -p source/local-nuget
 
-          RELEASE_JSON="$(mktemp)"
+          curl \
+            -fL \
+            --retry 5 \
+            --retry-delay 2 \
+            -A "GitHub-Actions-MeloNX-Build" \
+            "https://github.com/NextendoNetwork/Ryujinx-Nextendo/releases/download/build-deps/ryujinx.libhac.0.21.0-alpha.133.nupkg" \
+            -o "source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg"
 
-          curl -fL \
-            "https://api.github.com/repos/NextendoNetwork/Ryujinx-Nextendo/releases/tags/build-deps" \
-            -o "$RELEASE_JSON"
+          echo "Downloaded package:"
+          ls -lh source/local-nuget/
 
-          LIBHAC_URL="$(python3 - "$RELEASE_JSON" <<'PY'
-          import json
-          import sys
+          echo "Checking SHA256..."
 
-          with open(sys.argv[1], "r", encoding="utf-8") as f:
-              release = json.load(f)
+          ACTUAL_HASH="$(shasum -a 256 \
+            source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg \
+            | awk '{print $1}')"
 
-          for asset in release.get("assets", []):
-              name = asset.get("name", "")
-              if "Ryujinx.LibHac" in name and name.endswith(".nupkg"):
-                  print(asset["browser_download_url"])
-                  break
-          PY
-          )"
+          EXPECTED_HASH="554bf2315368f193335c0ac60d73d73fb8c318aaf3f8a13bddf4ef30e160b631"
 
-          if [ -z "$LIBHAC_URL" ]; then
-            echo "Could not find Ryujinx.LibHac backup package"
+          echo "Expected: $EXPECTED_HASH"
+          echo "Actual:   $ACTUAL_HASH"
+
+          if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+            echo "ERROR: LibHac package checksum does not match."
             exit 1
           fi
 
-          echo "Downloading LibHac from:"
-          echo "$LIBHAC_URL"
-
-          curl -fL \
-            "$LIBHAC_URL" \
-            -o "source/local-nuget/Ryujinx.LibHac.0.21.0-alpha.133.nupkg"
-
-          ls -lh source/local-nuget
+          echo "LibHac package verified successfully."
 
       - name: Replace broken NuGet source
         run: |
           cat > source/nuget.config <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
+
             <packageSources>
               <clear />
-              <add key="LocalLibHac" value="./local-nuget" />
-              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+
+              <add
+                key="LocalLibHac"
+                value="./local-nuget" />
+
+              <add
+                key="nuget.org"
+                value="https://api.nuget.org/v3/index.json" />
+
             </packageSources>
 
             <packageSourceMapping>
+
               <packageSource key="LocalLibHac">
                 <package pattern="Ryujinx.LibHac" />
               </packageSource>
@@ -117,7 +121,9 @@ jobs:
               <packageSource key="nuget.org">
                 <package pattern="*" />
               </packageSource>
+
             </packageSourceMapping>
+
           </configuration>
           EOF
 
@@ -144,19 +150,24 @@ jobs:
           echo "Searching for Ryujinx dylib..."
 
           DYLIB="$(find \
-            src/Ryujinx.Headless.SDL2/bin/Release \
+            src \
             -type f \
             -name 'Ryujinx.Headless.SDL2.dylib' \
             -print \
             -quit)"
 
           if [ -z "$DYLIB" ]; then
-            echo "Ryujinx.Headless.SDL2.dylib was not created"
+            echo "Ryujinx.Headless.SDL2.dylib was not created."
+            echo "Available dylibs:"
+            find src -type f -name '*.dylib' -print || true
             exit 1
           fi
 
           echo "Found:"
           echo "$DYLIB"
+
+          mkdir -p \
+            "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries"
 
           cp \
             "$DYLIB" \
@@ -177,28 +188,42 @@ jobs:
           require 'xcodeproj'
 
           project_path = 'src/MeloNX/MeloNX.xcodeproj'
+
           project = Xcodeproj::Project.open(project_path)
 
-          melonx = project.targets.find { |target| target.name == 'MeloNX' }
+          melonx = project.targets.find do |target|
+            target.name == 'MeloNX'
+          end
 
           abort('MeloNX target not found') unless melonx
 
           melonx.dependencies.dup.each do |dependency|
+
             target = dependency.target
+
             next unless target
 
-            if target.name.include?('Ryujinx')
+            if target.name.downcase.include?('ryujinx')
+
               puts "Removing dependency: #{target.name}"
+
               melonx.dependencies.delete(dependency)
-              dependency.remove_from_project
+
+              begin
+                dependency.remove_from_project
+              rescue
+              end
+
             end
           end
 
-          project.root_object.attributes['BuildIndependentTargetsInParallel'] = 'NO'
+          project.root_object.attributes[
+            'BuildIndependentTargetsInParallel'
+          ] = 'NO'
 
           project.save
 
-          puts 'Ryujinx Xcode dependency disabled'
+          puts 'Ryujinx Xcode dependency disabled.'
           RUBY
 
       - name: Copy build helper
@@ -215,6 +240,8 @@ jobs:
 
       - name: Verify dynamic libraries
         run: |
+          echo "Checking dynamic libraries..."
+
           file \
             "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavcodec.dylib"
 
@@ -253,14 +280,15 @@ jobs:
             -jobs 1 \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO | xcpretty
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
 
       - name: Verify archive
         run: |
           test -d \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
-          echo "MeloNX archive successfully created"
+          echo "MeloNX archive successfully created."
 
           ls -lah \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
@@ -300,7 +328,10 @@ jobs:
 
       - name: Install ldid
         run: |
-          curl -sSL \
+          curl \
+            -fL \
+            --retry 5 \
+            --retry-delay 2 \
             -o /usr/local/bin/ldid \
             "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_$(uname -m)"
 
@@ -311,7 +342,7 @@ jobs:
           test -d \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
-          echo "MeloNX.app found"
+          echo "MeloNX.app found."
 
       - name: Fake sign frameworks
         run: |
@@ -343,7 +374,8 @@ jobs:
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app" \
             "Payload/MeloNX.app"
 
-          zip -r \
+          zip \
+            -r \
             "MeloNX.ipa" \
             "Payload" \
             -x "._*" \
@@ -353,6 +385,7 @@ jobs:
       - name: Verify IPA
         run: |
           ls -lh MeloNX.ipa
+
           unzip -l MeloNX.ipa | head -50
 
       - name: Upload MeloNX IPA
