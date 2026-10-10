@@ -23,9 +23,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            10.0.x
-            8.0.x
+          dotnet-version: '10.0.x'
 
       - name: Clone latest MeloNX
         run: |
@@ -42,25 +40,19 @@ jobs:
           git lfs pull
           git submodule update --init --recursive
 
-      - name: Show MeloNX commit
+      - name: Show MeloNX version
         run: |
           cd source
-          echo "Latest MeloNX commit:"
           git log -1 --oneline
 
       - name: Setup dotnet path
         run: |
           sudo mkdir -p /usr/local/share/dotnet
-
           DOTNET_PATH="$(which dotnet)"
-
-          sudo ln -sf \
-            "$DOTNET_PATH" \
-            /usr/local/share/dotnet/dotnet
-
+          sudo ln -sf "$DOTNET_PATH" /usr/local/share/dotnet/dotnet
           dotnet --info
 
-      - name: Download LibHac backup package
+      - name: Download LibHac backup
         run: |
           mkdir -p source/local-nuget
 
@@ -68,32 +60,35 @@ jobs:
             -fL \
             --retry 5 \
             --retry-delay 2 \
-            -A "GitHub-Actions-MeloNX-Build" \
+            -A "GitHub-Actions-MeloNX" \
             "https://github.com/NextendoNetwork/Ryujinx-Nextendo/releases/download/build-deps/ryujinx.libhac.0.21.0-alpha.133.nupkg" \
             -o "source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg"
 
-          echo "Downloaded package:"
-          ls -lh source/local-nuget/
+          ls -lh source/local-nuget
 
-          echo "Checking SHA256..."
+      - name: Use LibHac backup version
+        run: |
+          cd source
 
-          ACTUAL_HASH="$(shasum -a 256 \
-            source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg \
-            | awk '{print $1}')"
+          python3 <<'PY'
+          from pathlib import Path
+          import re
 
-          EXPECTED_HASH="554bf2315368f193335c0ac60d73d73fb8c318aaf3f8a13bddf4ef30e160b631"
+          path = Path("Directory.Packages.props")
+          text = path.read_text()
 
-          echo "Expected: $EXPECTED_HASH"
-          echo "Actual:   $ACTUAL_HASH"
+          text = re.sub(
+              r'<PackageVersion Include="Ryujinx\.LibHac" Version="[^"]+" />',
+              '<PackageVersion Include="Ryujinx.LibHac" Version="0.21.0-alpha.133" />',
+              text
+          )
 
-          if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
-            echo "ERROR: LibHac package checksum does not match."
-            exit 1
-          fi
+          path.write_text(text)
+          PY
 
-          echo "LibHac package verified successfully."
+          grep "Ryujinx.LibHac" Directory.Packages.props
 
-      - name: Replace broken NuGet source
+      - name: Configure NuGet
         run: |
           cat > source/nuget.config <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -101,15 +96,8 @@ jobs:
 
             <packageSources>
               <clear />
-
-              <add
-                key="LocalLibHac"
-                value="./local-nuget" />
-
-              <add
-                key="nuget.org"
-                value="https://api.nuget.org/v3/index.json" />
-
+              <add key="LocalLibHac" value="./local-nuget" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
             </packageSources>
 
             <packageSourceMapping>
@@ -127,104 +115,66 @@ jobs:
           </configuration>
           EOF
 
-          echo "New nuget.config:"
           cat source/nuget.config
 
-      - name: Restore Ryujinx iOS project
+      - name: Restore Ryujinx Library
         run: |
           cd source
 
           dotnet restore \
-            src/Ryujinx.Headless.SDL2/Ryujinx.Headless.SDL2.csproj \
+            src/Ryujinx.Library/Ryujinx.Library.csproj \
             --configfile nuget.config
 
-      - name: Build Ryujinx manually
+      - name: Build Ryujinx Library
         run: |
           cd source
 
-          chmod +x distribution/ios/get_dotnet.sh
-          chmod +x distribution/ios/xc-compile.sh
+          chmod +x distribution/ios/build.sh
 
-          ./distribution/ios/xc-compile.sh
+          ./distribution/ios/build.sh
 
-          echo "Searching for Ryujinx dylib..."
+      - name: Verify Ryujinx build
+        run: |
+          cd source
+
+          echo "Searching for Ryujinx.Library.dylib"
+
+          find \
+            src/Ryujinx.Library \
+            -type f \
+            -name '*.dylib' \
+            -print
 
           DYLIB="$(find \
-            src \
+            src/Ryujinx.Library \
             -type f \
-            -name 'Ryujinx.Headless.SDL2.dylib' \
+            -name 'Ryujinx.Library.dylib' \
             -print \
             -quit)"
 
           if [ -z "$DYLIB" ]; then
-            echo "Ryujinx.Headless.SDL2.dylib was not created."
-            echo "Available dylibs:"
-            find src -type f -name '*.dylib' -print || true
+            echo "ERROR: Ryujinx.Library.dylib was not created."
             exit 1
           fi
 
           echo "Found:"
           echo "$DYLIB"
 
-          mkdir -p \
-            "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries"
+          file "$DYLIB"
 
-          cp \
-            "$DYLIB" \
-            "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/Ryujinx.Headless.SDL2.dylib"
+      - name: Prevent Xcode rebuilding Ryujinx
+        run: |
+          cat > source/distribution/ios/build.sh <<'EOF'
+          #!/usr/bin/env bash
+          echo "Ryujinx.Library already built by GitHub Actions."
+          exit 0
+          EOF
 
-          file \
-            "src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/Ryujinx.Headless.SDL2.dylib"
+          chmod +x source/distribution/ios/build.sh
 
       - name: Install xcodeproj
         run: |
           gem install xcodeproj
-
-      - name: Disable Xcode Ryujinx build target
-        run: |
-          cd source
-
-          ruby <<'RUBY'
-          require 'xcodeproj'
-
-          project_path = 'src/MeloNX/MeloNX.xcodeproj'
-
-          project = Xcodeproj::Project.open(project_path)
-
-          melonx = project.targets.find do |target|
-            target.name == 'MeloNX'
-          end
-
-          abort('MeloNX target not found') unless melonx
-
-          melonx.dependencies.dup.each do |dependency|
-
-            target = dependency.target
-
-            next unless target
-
-            if target.name.downcase.include?('ryujinx')
-
-              puts "Removing dependency: #{target.name}"
-
-              melonx.dependencies.delete(dependency)
-
-              begin
-                dependency.remove_from_project
-              rescue
-              end
-
-            end
-          end
-
-          project.root_object.attributes[
-            'BuildIndependentTargetsInParallel'
-          ] = 'NO'
-
-          project.save
-
-          puts 'Ryujinx Xcode dependency disabled.'
-          RUBY
 
       - name: Copy build helper
         run: |
@@ -232,16 +182,13 @@ jobs:
             helper/embed_sign_dylib.rb \
             source/embed_sign_dylib.rb
 
-      - name: Configure dynamic libraries
+      - name: Configure project
         run: |
           cd source
-
           ruby embed_sign_dylib.rb
 
       - name: Verify dynamic libraries
         run: |
-          echo "Checking dynamic libraries..."
-
           file \
             "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavcodec.dylib"
 
@@ -251,12 +198,9 @@ jobs:
           file \
             "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libMoltenVK.dylib"
 
-          file \
-            "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/Ryujinx.Headless.SDL2.dylib"
-
       - name: Resolve Swift packages
         run: |
-          cd source/src/MeloNX/
+          cd source/src/MeloNX
 
           xcodebuild \
             -resolvePackageDependencies \
@@ -265,9 +209,7 @@ jobs:
 
       - name: Build MeloNX archive
         run: |
-          cd source/src/MeloNX/
-
-          export PATH="$HOME/.dotnet:$PATH"
+          cd source/src/MeloNX
 
           set -o pipefail
 
@@ -288,7 +230,7 @@ jobs:
           test -d \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
-          echo "MeloNX archive successfully created."
+          echo "MeloNX archive created successfully"
 
           ls -lah \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
@@ -296,9 +238,9 @@ jobs:
       - name: Compress archive
         run: |
           tar \
-            -cvf "MeloNX_archive.xcarchive.tar" \
+            -cvf MeloNX_archive.xcarchive.tar \
             -C source \
-            "MeloNX_archive.xcarchive"
+            MeloNX_archive.xcarchive
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
@@ -324,7 +266,7 @@ jobs:
 
       - name: Extract archive
         run: |
-          tar -xf "MeloNX_archive.xcarchive.tar"
+          tar -xf MeloNX_archive.xcarchive.tar
 
       - name: Install ldid
         run: |
@@ -341,8 +283,6 @@ jobs:
         run: |
           test -d \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
-
-          echo "MeloNX.app found."
 
       - name: Fake sign frameworks
         run: |
@@ -372,12 +312,12 @@ jobs:
 
           cp -R \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app" \
-            "Payload/MeloNX.app"
+            Payload/MeloNX.app
 
           zip \
             -r \
-            "MeloNX.ipa" \
-            "Payload" \
+            MeloNX.ipa \
+            Payload \
             -x "._*" \
             -x ".DS_Store" \
             -x "__MACOSX/*"
@@ -385,8 +325,6 @@ jobs:
       - name: Verify IPA
         run: |
           ls -lh MeloNX.ipa
-
-          unzip -l MeloNX.ipa | head -50
 
       - name: Upload MeloNX IPA
         uses: actions/upload-artifact@v4
