@@ -9,8 +9,6 @@ jobs:
     runs-on: macos-26
 
     steps:
-      # Conservamos nuestros archivos auxiliares del fork que ya
-      # sabemos que funcionaron en la compilación anterior.
       - name: Checkout helper files
         uses: actions/checkout@v4
         with:
@@ -22,7 +20,6 @@ jobs:
         with:
           xcode-version: '26.6'
 
-      # MeloNX master actual ya utiliza .NET 10.
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -50,8 +47,6 @@ jobs:
           cd source
           echo "Latest MeloNX commit:"
           git log -1 --oneline
-          echo ""
-          echo "Repository status:"
           git status
 
       - name: Copy build helper
@@ -67,18 +62,10 @@ jobs:
       - name: Setup dotnet symlink
         run: |
           sudo mkdir -p /usr/local/share/dotnet
-
           DOTNET_PATH="$(which dotnet)"
-
-          sudo ln -sf \
-            "$DOTNET_PATH" \
-            /usr/local/share/dotnet/dotnet
-
+          sudo ln -sf "$DOTNET_PATH" /usr/local/share/dotnet/dotnet
           dotnet --info
 
-      # Esta primera compilación puede fallar.
-      # Es intencional: es el mismo método que usamos
-      # cuando conseguimos compilar tu IPA anterior.
       - name: First archive attempt
         continue-on-error: true
         run: |
@@ -100,24 +87,24 @@ jobs:
       - name: Configure project through Ruby script
         run: |
           cd source
-
           gem install xcodeproj
-
           ruby embed_sign_dylib.rb
 
       - name: Build MeloNX archive
         run: |
           cd source/src/MeloNX/
 
+          export PATH="$HOME/.dotnet:$PATH"
+
           set -o pipefail
 
           xcodebuild archive \
-            -archivePath "../../MeloNX_archive" \
+            -project "MeloNX.xcodeproj" \
             -scheme "MeloNX" \
-            -target "MeloNX" \
-            -sdk iphoneos \
-            -arch arm64 \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "../../MeloNX_archive" \
+            -jobs 1 \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO | xcpretty
@@ -145,14 +132,12 @@ jobs:
           name: MeloNX_archive.xcarchive.tar
           path: MeloNX_archive.xcarchive.tar
 
-
   package:
     name: Create MeloNX IPA
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      # Aquí necesitamos nuestro archivo de entitlements.
       - name: Checkout helper files
         uses: actions/checkout@v4
         with:
@@ -224,7 +209,6 @@ jobs:
       - name: Verify IPA
         run: |
           ls -lh MeloNX.ipa
-
           unzip -l MeloNX.ipa | head -50
 
       - name: Upload MeloNX IPA
