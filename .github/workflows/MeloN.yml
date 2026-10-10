@@ -78,7 +78,6 @@ jobs:
 
           if insert_at is None:
               print("ERROR: Could not find @ViewBuilder insertion point.")
-              print("Relevant lines:")
 
               for i, line in enumerate(lines, 1):
                   if (
@@ -101,11 +100,14 @@ jobs:
 
           path.write_text("".join(lines))
 
-          print("SUCCESS: Explicit EmulationView(game:) initializer inserted.")
+          print(
+              "SUCCESS: Explicit EmulationView(game:) "
+              "initializer inserted."
+          )
           PY
 
           echo ""
-          echo "Patched section:"
+          echo "Patched EmulationView section:"
 
           grep -A 8 -B 8 \
             "init(game: GameInfo)" \
@@ -165,7 +167,10 @@ jobs:
           print("Ryujinx.LibHac configured.")
           PY
 
-          grep "Ryujinx.LibHac" Directory.Packages.props || true
+          grep \
+            "Ryujinx.LibHac" \
+            Directory.Packages.props \
+            || true
 
       - name: Configure NuGet
         run: |
@@ -245,6 +250,7 @@ jobs:
             exit 1
           fi
 
+          echo ""
           echo "Found:"
           echo "$DYLIB"
 
@@ -302,11 +308,12 @@ jobs:
         run: |
           cd source/src/MeloNX
 
-          set -o pipefail
-
           echo "========================================="
           echo "Starting MeloNX Xcode archive"
           echo "========================================="
+
+          set +e
+          set -o pipefail
 
           xcodebuild archive \
             -project "MeloNX.xcodeproj" \
@@ -322,6 +329,13 @@ jobs:
 
           BUILD_STATUS=${PIPESTATUS[0]}
 
+          set -e
+
+          echo ""
+          echo "========================================="
+          echo "Xcode exit status: $BUILD_STATUS"
+          echo "========================================="
+
           if [ "$BUILD_STATUS" -ne 0 ]; then
             echo ""
             echo "========================================="
@@ -329,9 +343,80 @@ jobs:
             echo "========================================="
 
             grep -nEi \
-              'error:|fatal error:|undefined symbol|duplicate symbol|failed|cannot|inaccessible|not found|missing' \
+              'error:|fatal error:|undefined symbol|duplicate symbol|cannot find|cannot convert|cannot assign|inaccessible|no member|ambiguous|missing argument|extra argument|failed to build|emit-module command failed' \
               /tmp/melonx-xcodebuild.log \
-              | tail -120 \
+              | tail -200 \
+              || true
+
+            echo ""
+            echo "========================================="
+            echo "SWIFT ERROR CONTEXT"
+            echo "========================================="
+
+            python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("/tmp/melonx-xcodebuild.log")
+
+          if not path.exists():
+              print("Xcode log was not found.")
+              raise SystemExit(0)
+
+          lines = path.read_text(
+              errors="replace"
+          ).splitlines()
+
+          pattern = re.compile(
+              r'error:|fatal error:|'
+              r'undefined symbol|'
+              r'duplicate symbol|'
+              r'inaccessible|'
+              r'cannot find|'
+              r'cannot convert|'
+              r'cannot assign|'
+              r'no member|'
+              r'ambiguous|'
+              r'missing argument|'
+              r'extra argument',
+              re.IGNORECASE
+          )
+
+          matches = []
+
+          for i, line in enumerate(lines):
+              if pattern.search(line):
+                  matches.append(i)
+
+          if not matches:
+              print("No explicit compiler error line was detected.")
+          else:
+              shown = set()
+
+              for index in matches[-20:]:
+                  start = max(0, index - 5)
+                  end = min(len(lines), index + 7)
+
+                  for n in range(start, end):
+                      if n not in shown:
+                          print(
+                              f"{n + 1}: "
+                              f"{lines[n]}"
+                          )
+                          shown.add(n)
+
+                  print(
+                      "-----------------------------------------"
+                  )
+          PY
+
+            echo ""
+            echo "========================================="
+            echo "LAST 250 LINES OF XCODE LOG"
+            echo "========================================="
+
+            tail -250 \
+              /tmp/melonx-xcodebuild.log \
               || true
 
             echo ""
@@ -342,7 +427,10 @@ jobs:
             exit "$BUILD_STATUS"
           fi
 
+          echo ""
+          echo "========================================="
           echo "Archive finished successfully."
+          echo "========================================="
 
       - name: Verify archive
         run: |
