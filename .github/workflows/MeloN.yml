@@ -43,13 +43,63 @@ jobs:
       - name: Show MeloNX version
         run: |
           cd source
+          echo "Latest MeloNX commit:"
           git log -1 --oneline
+
+      - name: Patch MeloNX Swift compile issue
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift"
+          )
+
+          text = path.read_text()
+
+          old = """    @State var isConnected = false
+
+              @ViewBuilder
+          """
+
+          new = """    @State var isConnected = false
+
+              init(game: GameInfo) {
+                  self.game = game
+              }
+
+              @ViewBuilder
+          """
+
+          if old not in text:
+              print("ERROR: Could not find insertion point in EmulationView.swift")
+              print("Showing nearby lines:")
+              for i, line in enumerate(text.splitlines(), 1):
+                  if "isConnected" in line or "@ViewBuilder" in line:
+                      print(f"{i}: {line}")
+              raise SystemExit(1)
+
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("EmulationView initializer successfully patched.")
+          PY
+
+          grep -A 8 -B 4 \
+            "init(game: GameInfo)" \
+            source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
 
       - name: Setup dotnet path
         run: |
           sudo mkdir -p /usr/local/share/dotnet
+
           DOTNET_PATH="$(which dotnet)"
-          sudo ln -sf "$DOTNET_PATH" /usr/local/share/dotnet/dotnet
+
+          sudo ln -sf \
+            "$DOTNET_PATH" \
+            /usr/local/share/dotnet/dotnet
+
           dotnet --info
 
       - name: Download LibHac backup
@@ -64,6 +114,7 @@ jobs:
             "https://github.com/NextendoNetwork/Ryujinx-Nextendo/releases/download/build-deps/ryujinx.libhac.0.21.0-alpha.133.nupkg" \
             -o "source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg"
 
+          echo "Downloaded LibHac:"
           ls -lh source/local-nuget
 
       - name: Use LibHac backup version
@@ -77,16 +128,25 @@ jobs:
           path = Path("Directory.Packages.props")
           text = path.read_text()
 
-          text = re.sub(
+          new_text = re.sub(
               r'<PackageVersion Include="Ryujinx\.LibHac" Version="[^"]+" />',
               '<PackageVersion Include="Ryujinx.LibHac" Version="0.21.0-alpha.133" />',
               text
           )
 
-          path.write_text(text)
+          if new_text == text:
+              print("Ryujinx.LibHac version line was not changed.")
+              print("Existing matches:")
+              for line in text.splitlines():
+                  if "Ryujinx.LibHac" in line:
+                      print(line)
+          else:
+              print("Ryujinx.LibHac version patched.")
+
+          path.write_text(new_text)
           PY
 
-          grep "Ryujinx.LibHac" Directory.Packages.props
+          grep "Ryujinx.LibHac" Directory.Packages.props || true
 
       - name: Configure NuGet
         run: |
@@ -115,6 +175,7 @@ jobs:
           </configuration>
           EOF
 
+          echo "nuget.config:"
           cat source/nuget.config
 
       - name: Restore Ryujinx Library
@@ -137,13 +198,13 @@ jobs:
         run: |
           cd source
 
-          echo "Searching for Ryujinx.Library.dylib"
+          echo "Searching for Ryujinx dylibs..."
 
           find \
             src/Ryujinx.Library \
             -type f \
             -name '*.dylib' \
-            -print
+            -print || true
 
           DYLIB="$(find \
             src/Ryujinx.Library \
@@ -185,10 +246,13 @@ jobs:
       - name: Configure project
         run: |
           cd source
+
           ruby embed_sign_dylib.rb
 
       - name: Verify dynamic libraries
         run: |
+          echo "Checking dynamic libraries..."
+
           file \
             "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavcodec.dylib"
 
@@ -230,7 +294,7 @@ jobs:
           test -d \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
-          echo "MeloNX archive created successfully"
+          echo "MeloNX archive created successfully."
 
           ls -lah \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
@@ -284,6 +348,8 @@ jobs:
           test -d \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
+          echo "MeloNX.app found."
+
       - name: Fake sign frameworks
         run: |
           find \
@@ -325,6 +391,8 @@ jobs:
       - name: Verify IPA
         run: |
           ls -lh MeloNX.ipa
+
+          unzip -l MeloNX.ipa | head -50
 
       - name: Upload MeloNX IPA
         uses: actions/upload-artifact@v4
