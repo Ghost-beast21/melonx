@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Build latest MeloNX
-    runs-on: macos-26
+    runs-on: xcode-27
 
     steps:
       - name: Checkout helper files
@@ -15,10 +15,24 @@ jobs:
           ref: XC-ios-ht
           path: helper
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '26.5'
+      - name: Show Xcode and SDK version
+        run: |
+          echo "========================================="
+          echo "Xcode version"
+          echo "========================================="
+          xcodebuild -version
+
+          echo ""
+          echo "========================================="
+          echo "iPhoneOS SDK version"
+          echo "========================================="
+          xcrun --sdk iphoneos --show-sdk-version
+
+          echo ""
+          echo "========================================="
+          echo "Developer directory"
+          echo "========================================="
+          xcode-select -p
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -125,6 +139,36 @@ jobs:
             -B 8 \
             "init(game: GameInfo)" \
             source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
+
+      - name: Verify iOS 27 SceneAccessory API
+        run: |
+          echo "========================================="
+          echo "Checking UISceneAccessory API"
+          echo "========================================="
+
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+
+          echo "SDK path:"
+          echo "$SDK_PATH"
+          echo ""
+
+          grep \
+            -R \
+            -n \
+            "registerSceneAccessory" \
+            "$SDK_PATH/System/Library/Frameworks/UIKit.framework/Headers" \
+            | head -20 \
+            || true
+
+          echo ""
+
+          grep \
+            -R \
+            -n \
+            "externalNonInteractive" \
+            "$SDK_PATH/System/Library/Frameworks/UIKit.framework/Headers" \
+            | head -20 \
+            || true
 
       - name: Setup dotnet path
         run: |
@@ -353,10 +397,11 @@ jobs:
           cd source/src/MeloNX
 
           echo "========================================="
-          echo "Starting MeloNX Xcode archive"
-          echo "Swift optimization disabled to avoid"
-          echo "Swift 6.3.2 EarlyPerfInliner crash"
+          echo "Starting MeloNX Xcode 27 archive"
           echo "========================================="
+
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
           rm -rf /tmp/MeloNXBuild.xcresult
           rm -f /tmp/melonx-xcodebuild.log
@@ -392,17 +437,6 @@ jobs:
           echo "Xcode exit status: $BUILD_STATUS"
           echo "========================================="
 
-          echo ""
-          echo "Checking Swift optimization used:"
-          echo ""
-
-          grep \
-            -E \
-            -- '-Onone|-Osize|-O ' \
-            /tmp/melonx-xcodebuild.log \
-            | tail -20 \
-            || true
-
           if [ "$BUILD_STATUS" -ne 0 ]; then
 
             echo ""
@@ -412,7 +446,7 @@ jobs:
 
             grep \
               -nEi \
-              'error:|fatal error:|failed|failure|nonzero exit|signal|killed|crash|abort|Stack dump|EarlyPerfInliner|SwiftCompile|CompileSwift|emit-module|undefined symbol|duplicate symbol|cannot find|cannot convert|cannot assign|inaccessible|no member|ambiguous|missing argument|extra argument' \
+              'error:|fatal error:|failed|failure|nonzero exit|signal|killed|crash|abort|Stack dump|SwiftCompile|CompileSwift|emit-module|undefined symbol|duplicate symbol|cannot find|cannot convert|cannot assign|inaccessible|no member|ambiguous|missing argument|extra argument' \
               /tmp/melonx-xcodebuild.log \
               | tail -300 \
               || true
@@ -462,26 +496,11 @@ jobs:
 
             echo ""
             echo "========================================="
-            echo "COMPILER CRASH CONTEXT"
-            echo "========================================="
-
-            grep \
-              -n \
-              -A 35 \
-              -B 15 \
-              -E \
-              'Stack dump|EarlyPerfInliner|Failed frontend command|SwiftCompile' \
-              /tmp/melonx-xcodebuild.log \
-              | tail -300 \
-              || true
-
-            echo ""
-            echo "========================================="
-            echo "LAST 300 LINES OF XCODE LOG"
+            echo "LAST 350 LINES OF XCODE LOG"
             echo "========================================="
 
             tail \
-              -300 \
+              -350 \
               /tmp/melonx-xcodebuild.log \
               || true
 
@@ -614,6 +633,7 @@ jobs:
 
       - name: Create IPA
         run: |
+          rm -rf Payload
           mkdir -p Payload
 
           cp \
