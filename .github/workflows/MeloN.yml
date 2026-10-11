@@ -140,6 +140,71 @@ jobs:
             "init(game: GameInfo)" \
             source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
 
+      - name: Patch StatisticsHandler unaligned Double
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "source/src/MeloNX/MeloNX/Common/StatisticsHandler.swift"
+          )
+
+          if not path.exists():
+              print("ERROR: StatisticsHandler.swift does not exist.")
+              raise SystemExit(1)
+
+          text = path.read_text()
+
+          old = "load(fromByteOffset: 17, as: Double.self)"
+          new = "loadUnaligned(fromByteOffset: 17, as: Double.self)"
+
+          if new in text:
+              print(
+                  "StatisticsHandler is already patched. "
+                  "No change required."
+              )
+              raise SystemExit(0)
+
+          if old not in text:
+              print("ERROR: Target load at offset 17 was not found.")
+              print("")
+              print("Relevant lines:")
+
+              for number, line in enumerate(
+                  text.splitlines(),
+                  start=1
+              ):
+                  if "fromByteOffset" in line:
+                      print(f"{number}: {line}")
+
+              raise SystemExit(1)
+
+          text = text.replace(
+              old,
+              new,
+              1
+          )
+
+          path.write_text(text)
+
+          print(
+              "SUCCESS: StatisticsHandler "
+              "unaligned Double load patched."
+          )
+          PY
+
+          echo ""
+          echo "========================================="
+          echo "Patched StatisticsHandler"
+          echo "========================================="
+
+          grep \
+            -n \
+            -A 5 \
+            -B 5 \
+            "loadUnaligned" \
+            source/src/MeloNX/MeloNX/Common/StatisticsHandler.swift
+
       - name: Verify iOS 27 SceneAccessory API
         run: |
           echo "========================================="
