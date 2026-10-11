@@ -457,12 +457,29 @@ jobs:
             -project "MeloNX.xcodeproj" \
             -scheme "MeloNX"
 
+      - name: Show Release optimization settings
+        run: |
+          cd source/src/MeloNX
+
+          echo "========================================="
+          echo "Release optimization settings"
+          echo "========================================="
+
+          xcodebuild \
+            -project "MeloNX.xcodeproj" \
+            -scheme "MeloNX" \
+            -configuration Release \
+            -showBuildSettings \
+            | grep -E \
+            'SWIFT_OPTIMIZATION_LEVEL|GCC_OPTIMIZATION_LEVEL|SWIFT_COMPILATION_MODE|DEBUG_INFORMATION_FORMAT' \
+            || true
+
       - name: Build MeloNX archive
         run: |
           cd source/src/MeloNX
 
           echo "========================================="
-          echo "Starting MeloNX Xcode 27 archive"
+          echo "Starting OPTIMIZED MeloNX Release archive"
           echo "========================================="
 
           xcodebuild -version
@@ -488,10 +505,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_OPTIMIZATION_LEVEL=-Onone \
-            GCC_OPTIMIZATION_LEVEL=0 \
-            SWIFT_ENABLE_BATCH_MODE=NO \
-            SWIFT_COMPILATION_MODE=singlefile \
+            DEBUG_INFORMATION_FORMAT=dwarf-with-dsym \
             2>&1 \
             | tee /tmp/melonx-xcodebuild.log
 
@@ -580,7 +594,7 @@ jobs:
 
           echo ""
           echo "========================================="
-          echo "Archive finished successfully"
+          echo "Optimized archive finished successfully"
           echo "========================================="
 
       - name: Upload build diagnostics
