@@ -126,6 +126,105 @@ jobs:
             "init(game: GameInfo)" \
             source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
 
+      - name: Patch lastAppversion crash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path(
+              "source/src/MeloNX/MeloNX/UI/MeloNXApp.swift"
+          )
+
+          if not path.exists():
+              print("ERROR: MeloNXApp.swift was not found.")
+              raise SystemExit(1)
+
+          text = path.read_text()
+
+          if (
+              "lastAppversion.count >= MemoryLayout<Float>.size"
+              in text
+              and "loadUnaligned(as: Float.self)" in text
+          ):
+              print(
+                  "MeloNXApp.swift already contains "
+                  "the safe lastAppversion fix."
+              )
+              raise SystemExit(0)
+
+          pattern = re.compile(
+              r'(?m)^'
+              r'(?P<indent>[ \t]*)'
+              r'let\s+versionNumber'
+              r'(?:\s*:\s*Float)?'
+              r'\s*=\s*'
+              r'lastAppversion\.withUnsafeBytes\s*'
+              r'\{\s*\$0\.load'
+              r'\(as:\s*Float\.self\)\s*\}'
+              r'\s*$'
+          )
+
+          match = pattern.search(text)
+
+          if not match:
+              print(
+                  "ERROR: Could not find the unsafe "
+                  "lastAppversion read."
+              )
+
+              print("")
+              print("Relevant lines:")
+
+              for number, line in enumerate(
+                  text.splitlines(),
+                  start=1
+              ):
+                  if (
+                      "lastAppversion" in line
+                      or "versionNumber" in line
+                  ):
+                      print(f"{number}: {line}")
+
+              raise SystemExit(1)
+
+          indent = match.group("indent")
+
+          replacement = (
+              f"{indent}let versionNumber: Float = "
+              "lastAppversion.count >= "
+              "MemoryLayout<Float>.size\n"
+              f"{indent}    ? "
+              "lastAppversion.withUnsafeBytes { "
+              "$0.loadUnaligned(as: Float.self) }\n"
+              f"{indent}    : .zero"
+          )
+
+          text = (
+              text[:match.start()]
+              + replacement
+              + text[match.end():]
+          )
+
+          path.write_text(text)
+
+          print(
+              "SUCCESS: lastAppversion crash "
+              "has been patched."
+          )
+          PY
+
+          echo ""
+          echo "========================================="
+          echo "MeloNXApp lastAppversion patch"
+          echo "========================================="
+
+          grep \
+            -A 5 \
+            -B 3 \
+            "let versionNumber" \
+            source/src/MeloNX/MeloNX/UI/MeloNXApp.swift
+
       - name: Setup dotnet path
         run: |
           sudo mkdir -p /usr/local/share/dotnet
@@ -451,71 +550,6 @@ jobs:
                   --format json \
                   > /tmp/melonx-build-results.json \
                   2>> /tmp/xcresulttool-error.txt
-
-              fi
-
-              if [ -f "/tmp/melonx-build-results.json" ]; then
-
-                python3 <<'PY'
-          import json
-          import re
-          from pathlib import Path
-
-          path = Path(
-              "/tmp/melonx-build-results.json"
-          )
-
-          if not path.exists():
-              raise SystemExit(0)
-
-          try:
-              data = json.loads(
-                  path.read_text(
-                      errors="replace"
-                  )
-              )
-          except Exception as exc:
-              print(
-                  "Could not parse xcresult JSON:"
-              )
-              print(exc)
-              raise SystemExit(0)
-
-          interesting = re.compile(
-              r'error|fail|crash|signal|'
-              r'killed|abort|swift|'
-              r'compile|diagnostic|issue',
-              re.IGNORECASE
-          )
-
-          results = []
-
-          def walk(value, key=""):
-              if isinstance(value, dict):
-                  for k, v in value.items():
-                      walk(v, str(k))
-
-              elif isinstance(value, list):
-                  for item in value:
-                      walk(item, key)
-
-              elif isinstance(value, str):
-                  combined = f"{key}: {value}"
-
-                  if interesting.search(combined):
-                      results.append(combined)
-
-          walk(data)
-
-          seen = set()
-
-          for item in results[:300]:
-              if item in seen:
-                  continue
-
-              seen.add(item)
-              print(item)
-          PY
 
               fi
 
