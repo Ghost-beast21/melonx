@@ -36,14 +36,22 @@ jobs:
       - name: Pull Git LFS files
         run: |
           cd source
+
           git lfs install
           git lfs pull
-          git submodule update --init --recursive
+
+          git submodule update \
+            --init \
+            --recursive
 
       - name: Show MeloNX version
         run: |
           cd source
-          echo "Latest MeloNX commit:"
+
+          echo "========================================="
+          echo "MeloNX commit"
+          echo "========================================="
+
           git log -1 --oneline
 
       - name: Patch EmulationView initializer
@@ -62,7 +70,10 @@ jobs:
           text = path.read_text()
 
           if "init(game: GameInfo)" in text:
-              print("init(game: GameInfo) already exists. No patch required.")
+              print(
+                  "init(game: GameInfo) already exists. "
+                  "No patch required."
+              )
               raise SystemExit(0)
 
           lines = text.splitlines(keepends=True)
@@ -73,11 +84,16 @@ jobs:
           for i, line in enumerate(lines):
               if line.strip() == "@ViewBuilder":
                   insert_at = i
-                  indent = line[:len(line) - len(line.lstrip())]
+                  indent = line[
+                      :len(line) - len(line.lstrip())
+                  ]
                   break
 
           if insert_at is None:
-              print("ERROR: Could not find @ViewBuilder insertion point.")
+              print(
+                  "ERROR: Could not find "
+                  "@ViewBuilder insertion point."
+              )
 
               for i, line in enumerate(lines, 1):
                   if (
@@ -85,7 +101,9 @@ jobs:
                       or "@ViewBuilder" in line
                       or "var game" in line
                   ):
-                      print(f"{i}: {line.rstrip()}")
+                      print(
+                          f"{i}: {line.rstrip()}"
+                      )
 
               raise SystemExit(1)
 
@@ -98,28 +116,37 @@ jobs:
 
           lines[insert_at:insert_at] = initializer
 
-          path.write_text("".join(lines))
+          path.write_text(
+              "".join(lines)
+          )
 
           print(
-              "SUCCESS: Explicit EmulationView(game:) "
-              "initializer inserted."
+              "SUCCESS: Explicit "
+              "EmulationView(game:) initializer inserted."
           )
           PY
 
           echo ""
-          echo "Patched EmulationView section:"
+          echo "========================================="
+          echo "Patched EmulationView"
+          echo "========================================="
 
-          grep -A 8 -B 8 \
+          grep \
+            -A 8 \
+            -B 8 \
             "init(game: GameInfo)" \
             source/src/MeloNX/MeloNX/UI/Emulation/EmulationView.swift
 
       - name: Setup dotnet path
         run: |
-          sudo mkdir -p /usr/local/share/dotnet
+          sudo mkdir \
+            -p \
+            /usr/local/share/dotnet
 
           DOTNET_PATH="$(which dotnet)"
 
-          sudo ln -sf \
+          sudo ln \
+            -sf \
             "$DOTNET_PATH" \
             /usr/local/share/dotnet/dotnet
 
@@ -127,7 +154,9 @@ jobs:
 
       - name: Download LibHac backup
         run: |
-          mkdir -p source/local-nuget
+          mkdir \
+            -p \
+            source/local-nuget
 
           curl \
             -fL \
@@ -137,8 +166,12 @@ jobs:
             "https://github.com/NextendoNetwork/Ryujinx-Nextendo/releases/download/build-deps/ryujinx.libhac.0.21.0-alpha.133.nupkg" \
             -o "source/local-nuget/ryujinx.libhac.0.21.0-alpha.133.nupkg"
 
+          echo ""
           echo "Downloaded LibHac:"
-          ls -lh source/local-nuget
+
+          ls \
+            -lh \
+            source/local-nuget
 
       - name: Use LibHac backup version
         run: |
@@ -148,23 +181,44 @@ jobs:
           from pathlib import Path
           import re
 
-          path = Path("Directory.Packages.props")
+          path = Path(
+              "Directory.Packages.props"
+          )
 
           if not path.exists():
-              print("ERROR: Directory.Packages.props not found.")
+              print(
+                  "ERROR: Directory.Packages.props "
+                  "not found."
+              )
               raise SystemExit(1)
 
           text = path.read_text()
 
+          pattern = (
+              r'<PackageVersion '
+              r'Include="Ryujinx\.LibHac" '
+              r'Version="[^"]+" />'
+          )
+
+          replacement = (
+              '<PackageVersion '
+              'Include="Ryujinx.LibHac" '
+              'Version="0.21.0-alpha.133" />'
+          )
+
           new_text = re.sub(
-              r'<PackageVersion Include="Ryujinx\.LibHac" Version="[^"]+" />',
-              '<PackageVersion Include="Ryujinx.LibHac" Version="0.21.0-alpha.133" />',
+              pattern,
+              replacement,
               text
           )
 
-          path.write_text(new_text)
+          path.write_text(
+              new_text
+          )
 
-          print("Ryujinx.LibHac configured.")
+          print(
+              "Ryujinx.LibHac configured."
+          )
           PY
 
           grep \
@@ -206,7 +260,11 @@ jobs:
           </configuration>
           EOF
 
-          echo "nuget.config:"
+          echo ""
+          echo "========================================="
+          echo "nuget.config"
+          echo "========================================="
+
           cat source/nuget.config
 
       - name: Restore Ryujinx Library
@@ -221,7 +279,9 @@ jobs:
         run: |
           cd source
 
-          chmod +x distribution/ios/build.sh
+          chmod \
+            +x \
+            distribution/ios/build.sh
 
           ./distribution/ios/build.sh
 
@@ -229,7 +289,9 @@ jobs:
         run: |
           cd source
 
-          echo "Searching for Ryujinx dylibs..."
+          echo "========================================="
+          echo "Searching for Ryujinx dylibs"
+          echo "========================================="
 
           find \
             src/Ryujinx.Library \
@@ -246,13 +308,16 @@ jobs:
             -quit)"
 
           if [ -z "$DYLIB" ]; then
-            echo "ERROR: Ryujinx.Library.dylib was not created."
+            echo ""
+            echo "ERROR:"
+            echo "Ryujinx.Library.dylib was not created."
             exit 1
           fi
 
           echo ""
           echo "Found:"
           echo "$DYLIB"
+          echo ""
 
           file "$DYLIB"
 
@@ -264,7 +329,9 @@ jobs:
           exit 0
           EOF
 
-          chmod +x source/distribution/ios/build.sh
+          chmod \
+            +x \
+            source/distribution/ios/build.sh
 
       - name: Install xcodeproj
         run: |
@@ -284,7 +351,9 @@ jobs:
 
       - name: Verify dynamic libraries
         run: |
-          echo "Checking dynamic libraries..."
+          echo "========================================="
+          echo "Checking dynamic libraries"
+          echo "========================================="
 
           file \
             "source/src/MeloNX/MeloNX/Dependencies/Dynamic Libraries/libavcodec.dylib"
@@ -312,6 +381,22 @@ jobs:
           echo "Starting MeloNX Xcode archive"
           echo "========================================="
 
+          rm \
+            -rf \
+            /tmp/MeloNXBuild.xcresult
+
+          rm \
+            -f \
+            /tmp/melonx-xcodebuild.log
+
+          rm \
+            -f \
+            /tmp/melonx-build-results.json
+
+          rm \
+            -f \
+            /tmp/xcresulttool-error.txt
+
           set +e
           set -o pipefail
 
@@ -321,15 +406,19 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "../../MeloNX_archive" \
+            -resultBundlePath "/tmp/MeloNXBuild.xcresult" \
             -jobs 1 \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee /tmp/melonx-xcodebuild.log
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_ENABLE_BATCH_MODE=NO \
+            SWIFT_COMPILATION_MODE=singlefile \
+            2>&1 \
+            | tee \
+            /tmp/melonx-xcodebuild.log
 
           BUILD_STATUS=${PIPESTATUS[0]}
-
-          set -e
 
           echo ""
           echo "========================================="
@@ -337,30 +426,193 @@ jobs:
           echo "========================================="
 
           if [ "$BUILD_STATUS" -ne 0 ]; then
+
             echo ""
             echo "========================================="
             echo "REAL XCODE ERRORS"
             echo "========================================="
 
-            grep -nEi \
-              'error:|fatal error:|undefined symbol|duplicate symbol|cannot find|cannot convert|cannot assign|inaccessible|no member|ambiguous|missing argument|extra argument|failed to build|emit-module command failed' \
+            grep \
+              -nEi \
+              'error:|fatal error:|failed|failure|nonzero exit|signal|killed|crash|abort|undefined symbol|duplicate symbol|cannot find|cannot convert|cannot assign|inaccessible|no member|ambiguous|missing argument|extra argument|SwiftCompile|CompileSwift|emit-module' \
               /tmp/melonx-xcodebuild.log \
-              | tail -200 \
+              | tail -300 \
               || true
 
             echo ""
             echo "========================================="
-            echo "SWIFT ERROR CONTEXT"
+            echo "XCRESULT BUILD DIAGNOSTICS"
+            echo "========================================="
+
+            if [ -d "/tmp/MeloNXBuild.xcresult" ]; then
+
+              echo "xcresult bundle exists."
+              echo ""
+
+              xcrun \
+                xcresulttool \
+                get \
+                build-results \
+                --path \
+                "/tmp/MeloNXBuild.xcresult" \
+                --format \
+                json \
+                > /tmp/melonx-build-results.json \
+                2> /tmp/xcresulttool-error.txt
+
+              XCRESULT_STATUS=$?
+
+              if [ "$XCRESULT_STATUS" -ne 0 ]; then
+
+                echo ""
+                echo "Modern xcresulttool failed."
+                echo "Trying legacy mode..."
+                echo ""
+
+                cat \
+                  /tmp/xcresulttool-error.txt \
+                  || true
+
+                xcrun \
+                  xcresulttool \
+                  get \
+                  --legacy \
+                  --path \
+                  "/tmp/MeloNXBuild.xcresult" \
+                  --format \
+                  json \
+                  > /tmp/melonx-build-results.json \
+                  2>> /tmp/xcresulttool-error.txt
+
+                XCRESULT_STATUS=$?
+
+              fi
+
+              if [ "$XCRESULT_STATUS" -eq 0 ]; then
+
+                echo ""
+                echo "xcresult JSON extracted successfully."
+                echo ""
+
+                python3 <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          path = Path(
+              "/tmp/melonx-build-results.json"
+          )
+
+          if not path.exists():
+              print(
+                  "No xcresult JSON file found."
+              )
+              raise SystemExit(0)
+
+          try:
+              data = json.loads(
+                  path.read_text(
+                      errors="replace"
+                  )
+              )
+          except Exception as exc:
+              print(
+                  "Could not parse xcresult JSON:"
+              )
+              print(exc)
+              raise SystemExit(0)
+
+          interesting = re.compile(
+              r'error|fail|crash|signal|'
+              r'killed|abort|swift|'
+              r'compile|diagnostic|issue',
+              re.IGNORECASE
+          )
+
+          results = []
+
+          def walk(value, key=""):
+              if isinstance(value, dict):
+                  for k, v in value.items():
+                      walk(v, str(k))
+
+              elif isinstance(value, list):
+                  for item in value:
+                      walk(item, key)
+
+              elif isinstance(value, str):
+                  combined = (
+                      f"{key}: {value}"
+                  )
+
+                  if interesting.search(
+                      combined
+                  ):
+                      results.append(
+                          combined
+                      )
+
+          walk(data)
+
+          seen = set()
+          printed = 0
+
+          for item in results:
+              if item in seen:
+                  continue
+
+              seen.add(item)
+
+              print(item)
+
+              printed += 1
+
+              if printed >= 300:
+                  break
+
+          if printed == 0:
+              print(
+                  "No obvious diagnostic strings "
+                  "were found in xcresult."
+              )
+          PY
+
+              else
+
+                echo ""
+                echo "xcresulttool could not extract JSON."
+                echo ""
+
+                cat \
+                  /tmp/xcresulttool-error.txt \
+                  || true
+
+              fi
+
+            else
+
+              echo ""
+              echo "No xcresult bundle was created."
+
+            fi
+
+            echo ""
+            echo "========================================="
+            echo "SWIFT FAILURE CONTEXT"
             echo "========================================="
 
             python3 <<'PY'
           from pathlib import Path
           import re
 
-          path = Path("/tmp/melonx-xcodebuild.log")
+          path = Path(
+              "/tmp/melonx-xcodebuild.log"
+          )
 
           if not path.exists():
-              print("Xcode log was not found.")
+              print(
+                  "Xcode log was not found."
+              )
               raise SystemExit(0)
 
           lines = path.read_text(
@@ -368,7 +620,18 @@ jobs:
           ).splitlines()
 
           pattern = re.compile(
-              r'error:|fatal error:|'
+              r'error:|'
+              r'fatal error:|'
+              r'failed|'
+              r'failure|'
+              r'nonzero exit|'
+              r'signal|'
+              r'killed|'
+              r'crash|'
+              r'abort|'
+              r'SwiftCompile|'
+              r'CompileSwift|'
+              r'emit-module|'
               r'undefined symbol|'
               r'duplicate symbol|'
               r'inaccessible|'
@@ -384,38 +647,57 @@ jobs:
 
           matches = []
 
-          for i, line in enumerate(lines):
+          for index, line in enumerate(lines):
               if pattern.search(line):
-                  matches.append(i)
+                  matches.append(index)
 
           if not matches:
-              print("No explicit compiler error line was detected.")
+              print(
+                  "No explicit failure line "
+                  "was detected."
+              )
+
           else:
               shown = set()
 
-              for index in matches[-20:]:
-                  start = max(0, index - 5)
-                  end = min(len(lines), index + 7)
+              for index in matches[-40:]:
 
-                  for n in range(start, end):
-                      if n not in shown:
-                          print(
-                              f"{n + 1}: "
-                              f"{lines[n]}"
-                          )
-                          shown.add(n)
+                  start = max(
+                      0,
+                      index - 8
+                  )
+
+                  end = min(
+                      len(lines),
+                      index + 12
+                  )
 
                   print(
                       "-----------------------------------------"
                   )
+
+                  for n in range(
+                      start,
+                      end
+                  ):
+                      if n in shown:
+                          continue
+
+                      print(
+                          f"{n + 1}: "
+                          f"{lines[n]}"
+                      )
+
+                      shown.add(n)
           PY
 
             echo ""
             echo "========================================="
-            echo "LAST 250 LINES OF XCODE LOG"
+            echo "LAST 400 LINES OF XCODE LOG"
             echo "========================================="
 
-            tail -250 \
+            tail \
+              -400 \
               /tmp/melonx-xcodebuild.log \
               || true
 
@@ -425,27 +707,45 @@ jobs:
             echo "========================================="
 
             exit "$BUILD_STATUS"
+
           fi
 
           echo ""
           echo "========================================="
-          echo "Archive finished successfully."
+          echo "Archive finished successfully"
           echo "========================================="
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeloNX-build-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            /tmp/melonx-xcodebuild.log
+            /tmp/melonx-build-results.json
+            /tmp/xcresulttool-error.txt
+            /tmp/MeloNXBuild.xcresult
 
       - name: Verify archive
         run: |
-          test -d \
+          test \
+            -d \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
+          echo ""
           echo "MeloNX archive created successfully."
 
-          ls -lah \
+          ls \
+            -lah \
             "source/MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
       - name: Compress archive
         run: |
           tar \
-            -cvf MeloNX_archive.xcarchive.tar \
+            -cvf \
+            MeloNX_archive.xcarchive.tar \
             -C source \
             MeloNX_archive.xcarchive
 
@@ -473,7 +773,9 @@ jobs:
 
       - name: Extract archive
         run: |
-          tar -xf MeloNX_archive.xcarchive.tar
+          tar \
+            -xf \
+            MeloNX_archive.xcarchive.tar
 
       - name: Install ldid
         run: |
@@ -484,11 +786,14 @@ jobs:
             -o /usr/local/bin/ldid \
             "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_$(uname -m)"
 
-          chmod +x /usr/local/bin/ldid
+          chmod \
+            +x \
+            /usr/local/bin/ldid
 
       - name: Verify MeloNX app
         run: |
-          test -d \
+          test \
+            -d \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app"
 
           echo "MeloNX.app found."
@@ -499,7 +804,11 @@ jobs:
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app" \
             -type d \
             -path '*/Frameworks/*.framework' \
-            -exec ldid -SMeloNX-hv.entitlements {} \;
+            -exec \
+            ldid \
+            -SMeloNX-hv.entitlements \
+            {} \
+            \;
 
       - name: Fake sign dylibs
         run: |
@@ -507,7 +816,11 @@ jobs:
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app" \
             -type f \
             -name '*.dylib' \
-            -exec ldid -SMeloNX-hv.entitlements {} \;
+            -exec \
+            ldid \
+            -SMeloNX-hv.entitlements \
+            {} \
+            \;
 
       - name: Fake sign MeloNX
         run: |
@@ -517,9 +830,12 @@ jobs:
 
       - name: Create IPA
         run: |
-          mkdir -p Payload
+          mkdir \
+            -p \
+            Payload
 
-          cp -R \
+          cp \
+            -R \
             "MeloNX_archive.xcarchive/Products/Applications/MeloNX.app" \
             Payload/MeloNX.app
 
@@ -533,9 +849,23 @@ jobs:
 
       - name: Verify IPA
         run: |
-          ls -lh MeloNX.ipa
+          echo ""
+          echo "========================================="
+          echo "Created IPA"
+          echo "========================================="
 
-          unzip -l MeloNX.ipa | head -50
+          ls \
+            -lh \
+            MeloNX.ipa
+
+          echo ""
+          echo "IPA contents:"
+          echo ""
+
+          unzip \
+            -l \
+            MeloNX.ipa \
+            | head -50
 
       - name: Upload MeloNX IPA
         uses: actions/upload-artifact@v4
